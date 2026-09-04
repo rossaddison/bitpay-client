@@ -1,0 +1,44 @@
+{
+    "name": "rossaddison/bitpay-client",
+    "description": "Hand-written PHP client for the BitPay API (POS facade), for use by rossaddison/invoice",
+    "keywords": [
+        "bitpay",
+        "bitcoin",
+        "cryptocurrency",
+        "payment",
+        "gateway",
+        "api",
+        "sdk"
+    ],
+    "homepage": "https://github.com/rossaddison/bitpay-client",
+    "license": "BSD-3-Clause",
+    "authors": [
+        {
+            "name": "Ross Addison",
+            "homepage": "https://github.com/rossaddison"
+        }
+    ],
+    "support": {
+        "source": "https://github.com/rossaddison/bitpay-client",
+        "issues": "https://github.com/rossaddison/bitpay-client/issues"
+    },
+    "require": {
+        "php": "8.4 - 9.0",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "guzzlehttp/guzzle": ">=7.15.5",
+        "guzzlehttp/psr7": ">=2.13.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": ">=13.1.4",
+        "friendsofphp/php-cs-fixer": "^3.95.23",
+        "vimeo/psalm": ">=6.16.1"
+    },
+    "autoload": {
+        "psr-4": { "RossAddison\\BitPayClient\\" : "src/" }
+    },
+    "autoload-dev": {
+        "psr-4": { "RossAddison\\BitPayClient\\Test\\" : "test/" }
+    }
+}
