@@ -81,16 +81,27 @@ if ($client->verifyWebhookSignature($rawRequestBody, $request->getHeaderLine('x-
 
 ## A note on the webhook signature
 
-BitPay's own docs describe the HMAC message as "the JSON webhook body with
-whitespace removed". BitPay's own published reference verifier
-([`bitpay/hmac-tester`](https://github.com/bitpay/hmac-tester),
-`src/controllers/webhook-validator.controller.ts`) actually computes
-`JSON.stringify(req.body)` — parse, then re-serialize compactly — which is
-what `verifyWebhookSignature()` mirrors (`json_decode` then `json_encode`
-with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`, since PHP's
-`json_encode()` escapes `/` and non-ASCII characters by default and
-JavaScript's `JSON.stringify()` does neither). Not independently confirmed
-against a real BitPay-signed webhook — there was no live sandbox account
-available while building this. Treat it as a first gate, not the sole
-check, exactly as BitPay's own docs recommend ("the IPN should be used as
-a trigger to verify the status of a specific invoice").
+`x-signature` is `base64(HMAC-SHA256(rawBody, token))` over the **raw
+request body bytes exactly as received** — no JSON parsing, no
+re-serialization. Confirmed live 2026-09-05 against real BitPay-signed
+webhook deliveries (`rossaddison/invoice`, a real sandbox account):
+logging the HMAC computed over the literal raw body alongside the
+received `x-signature` header showed an exact match.
+
+An earlier revision of this method parsed the body then re-encoded it
+first, on the theory that BitPay's own reference verifier
+([`bitpay/hmac-tester`](https://github.com/bitpay/hmac-tester)) computes
+`JSON.stringify(req.body)` rather than hashing the wire bytes directly.
+That turned out to be wrong for real payloads: BitPay's actual webhook
+bodies carry large numeric values in scientific notation (e.g.
+`"MATIC":1.699895497e+21`, present in every real invoice's
+`paymentSubtotals`/`paymentTotals`), and PHP's `json_decode()` /
+`json_encode()` round-trip doesn't reliably reproduce the exact same
+numeric string for values like that — silently changing the bytes being
+signed, and therefore the HMAC, for every real invoice notification.
+Hashing the literal raw bytes sidesteps that entirely.
+
+Still only a first gate, not the sole check — always re-confirm via
+`getInvoice()` before marking anything paid, exactly as BitPay's own
+docs recommend ("the IPN should be used as a trigger to verify the
+status of a specific invoice").

@@ -207,13 +207,9 @@ final class BitPayClientTest extends TestCase
         $client = new BitPayClient(token: 'shared-secret');
 
         $body = json_encode(['id' => 'inv-123', 'status' => 'complete'], JSON_THROW_ON_ERROR);
-        $canonical = json_encode(
-            json_decode($body, true, 512, JSON_THROW_ON_ERROR),
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
-        );
-        $signature = base64_encode(hash_hmac('sha256', (string) $canonical, 'shared-secret', true));
+        $signature = base64_encode(hash_hmac('sha256', (string) $body, 'shared-secret', true));
 
-        $this->assertTrue($client->verifyWebhookSignature($body, $signature));
+        $this->assertTrue($client->verifyWebhookSignature((string) $body, $signature));
     }
 
     public function testVerifyWebhookSignatureRejectsAWrongSignature(): void
@@ -222,21 +218,38 @@ final class BitPayClientTest extends TestCase
 
         $body = json_encode(['id' => 'inv-123', 'status' => 'complete'], JSON_THROW_ON_ERROR);
 
-        $this->assertFalse($client->verifyWebhookSignature($body, 'not-the-right-signature'));
+        $this->assertFalse($client->verifyWebhookSignature((string) $body, 'not-the-right-signature'));
     }
 
-    public function testVerifyWebhookSignatureRejectsMalformedJsonBody(): void
+    /**
+     * The signature is computed over the raw bytes with no JSON parsing
+     * step at all — confirmed directly against real BitPay webhook
+     * deliveries (see this method's own docblock). A malformed body isn't
+     * specially rejected; it just needs its own correctly-computed
+     * signature like any other body, proving no JSON validation happens.
+     */
+    public function testVerifyWebhookSignatureAcceptsAMatchingSignatureEvenOverMalformedJson(): void
     {
         $client = new BitPayClient(token: 'shared-secret');
 
-        $this->assertFalse($client->verifyWebhookSignature('{not valid json', 'anything'));
+        $body = '{not valid json';
+        $signature = base64_encode(hash_hmac('sha256', $body, 'shared-secret', true));
+
+        $this->assertTrue($client->verifyWebhookSignature($body, $signature));
     }
 
-    public function testVerifyWebhookSignatureIsUnaffectedByFormattingWhitespaceAroundTheSameValue(): void
+    /**
+     * Confirms the signature is sensitive to the exact raw bytes, not a
+     * parsed-then-reencoded canonical form — the opposite of an earlier
+     * revision of this method, which parsed and re-encoded the body first
+     * and was proven wrong against real BitPay webhook deliveries (see
+     * BitPayClient::verifyWebhookSignature()'s own docblock: PHP's
+     * json_decode()/json_encode() round-trip doesn't reliably reproduce
+     * the same numeric string for values like the scientific notation
+     * BitPay's real invoice payloads carry, e.g. "MATIC":1.699895497e+21).
+     */
+    public function testVerifyWebhookSignatureRejectsADifferentlyFormattedButLogicallyIdenticalBody(): void
     {
-        // Same logical JSON value, differently formatted on the wire (as if
-        // pretty-printed by an intermediary) — the parse-then-re-encode
-        // approach must produce the identical signature either way.
         $client = new BitPayClient(token: 'shared-secret');
 
         $compact = json_encode(['id' => 'inv-123', 'status' => 'complete'], JSON_THROW_ON_ERROR);
@@ -244,13 +257,8 @@ final class BitPayClientTest extends TestCase
             ['id' => 'inv-123', 'status' => 'complete'],
             JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR,
         );
+        $signature = base64_encode(hash_hmac('sha256', (string) $compact, 'shared-secret', true));
 
-        $canonical = json_encode(
-            json_decode((string) $compact, true, 512, JSON_THROW_ON_ERROR),
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
-        );
-        $signature = base64_encode(hash_hmac('sha256', (string) $canonical, 'shared-secret', true));
-
-        $this->assertTrue($client->verifyWebhookSignature((string) $pretty, $signature));
+        $this->assertFalse($client->verifyWebhookSignature((string) $pretty, $signature));
     }
 }

@@ -107,31 +107,28 @@ final readonly class BitPayClient
 
     /**
      * Verifies an incoming webhook's `x-signature` header: a base64
-     * HMAC-SHA256 over the JSON body, keyed by the same token used to
-     * create the resource.
+     * HMAC-SHA256 over the raw JSON body bytes exactly as received, keyed
+     * by the same token used to create the resource.
      *
-     * $rawBody is parsed then re-encoded (JSON_UNESCAPED_SLASHES |
-     * JSON_UNESCAPED_UNICODE) rather than hashed as literally received.
-     * BitPay's own docs describe the message as "the JSON webhook body
-     * with whitespace removed", but BitPay's own published reference
-     * verifier (github.com/bitpay/hmac-tester,
-     * src/controllers/webhook-validator.controller.ts) actually computes
-     * `JSON.stringify(req.body)` — parse, then re-serialize compactly —
-     * not a literal whitespace strip of the wire bytes. A blind
-     * whitespace strip would corrupt any string field containing a
-     * legitimate internal space (a buyer name, an orderId built from
-     * this app's own invoice number) before hashing, silently breaking
-     * verification for exactly those invoices. Parsing and re-encoding
-     * is what that reference implementation actually does, so this
-     * mirrors it; the unescaped-slashes/unicode flags exist because
-     * PHP's json_encode() escapes `/` and non-ASCII characters by
-     * default and JavaScript's JSON.stringify() does neither, which
-     * would otherwise produce a different byte sequence — and therefore
-     * a different HMAC — for the exact same logical JSON value.
+     * Confirmed live 2026-09-05 against real BitPay-signed webhook
+     * deliveries (rossaddison/invoice, a real sandbox account): logging
+     * the computed HMAC over the literal raw body alongside the received
+     * `x-signature` header showed an exact byte-for-byte match. An
+     * earlier revision of this method parsed then re-encoded the body
+     * first (mirroring what BitPay's own reference verifier,
+     * github.com/bitpay/hmac-tester, appears to do in
+     * `JSON.stringify(req.body)`) — that was wrong for real payloads:
+     * BitPay's actual webhook bodies carry large numeric values in
+     * scientific notation (e.g. `"MATIC":1.699895497e+21`, from
+     * `paymentSubtotals`/`paymentTotals`), and PHP's `json_decode()` /
+     * `json_encode()` round-trip doesn't reliably reproduce the exact
+     * same numeric string for values like that — silently changing the
+     * bytes being signed, and therefore the HMAC, for every real invoice
+     * body (which always carries these fields). Hashing the literal raw
+     * bytes, with no parsing step at all, sidesteps that entirely and is
+     * what real BitPay webhooks actually match against.
      *
-     * Not independently confirmed against a real BitPay-signed webhook
-     * (no live sandbox account in this environment) — treat this as a
-     * first gate, never the sole check. Every caller in
+     * Still only the first gate, never the sole check — every caller in
      * rossaddison/invoice re-confirms via an authenticated getInvoice()
      * before marking anything paid regardless of whether this returns
      * true, matching BitPay's own guidance ("the IPN should be used as
@@ -141,17 +138,7 @@ final readonly class BitPayClient
      */
     public function verifyWebhookSignature(string $rawBody, string $signatureHeader): bool
     {
-        $decoded = json_decode($rawBody, true);
-        if (!is_array($decoded)) {
-            return false;
-        }
-
-        $canonical = json_encode($decoded, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($canonical === false) {
-            return false;
-        }
-
-        $expected = base64_encode(hash_hmac('sha256', $canonical, $this->token, true));
+        $expected = base64_encode(hash_hmac('sha256', $rawBody, $this->token, true));
 
         return hash_equals($expected, $signatureHeader);
     }
