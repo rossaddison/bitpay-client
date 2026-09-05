@@ -55,6 +55,38 @@ final class BitPayClientTest extends TestCase
         $this->assertFalse($invoice->isSettled());
     }
 
+    /**
+     * Regression test: an earlier revision of getInvoice() sent this same
+     * request to 'api/invoices/...' instead of 'invoices/...' — a
+     * copy-paste-era path that was never actually re-verified against
+     * BitPay's own OpenAPI reference the way createInvoice()'s path was.
+     * Asserting the exact method+path here (not just that a response was
+     * successfully parsed, which a wrong path's mocked response would
+     * still satisfy) is what would have caught it.
+     */
+    public function testCreateInvoiceSendsAPostToTheInvoicesPath(): void
+    {
+        $mock = new MockHandler([
+            new Response(200, [], json_encode([
+                'data' => [
+                    'id' => 'inv-123',
+                    'url' => 'https://bitpay.com/invoice?id=inv-123',
+                    'status' => 'new',
+                    'price' => 59.40,
+                    'currency' => 'GBP',
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ]);
+        $client = $this->clientWithQueuedResponses($mock);
+
+        $client->createInvoice(new CreateInvoiceRequest(price: 59.40, currency: 'GBP', orderId: 'INV-0042'));
+
+        $sentRequest = $mock->getLastRequest();
+        $this->assertNotNull($sentRequest);
+        $this->assertSame('POST', $sentRequest->getMethod());
+        $this->assertSame('invoices', $sentRequest->getUri()->getPath());
+    }
+
     public function testCreateInvoiceThrowsOnNon2xxResponse(): void
     {
         $mock = new MockHandler([
@@ -85,6 +117,35 @@ final class BitPayClientTest extends TestCase
             currency: 'GBP',
             orderId: 'INV-0042',
         ));
+    }
+
+    /**
+     * See testCreateInvoiceSendsAPostToTheInvoicesPath()'s own docblock —
+     * the same class of regression, for getInvoice()'s own path, which is
+     * where the actual bug was found.
+     */
+    public function testGetInvoiceSendsAGetToTheInvoicesIdPath(): void
+    {
+        $mock = new MockHandler([
+            new Response(200, [], json_encode([
+                'data' => [
+                    'id' => 'inv-123',
+                    'url' => 'https://bitpay.com/invoice?id=inv-123',
+                    'status' => 'complete',
+                    'price' => 59.40,
+                    'currency' => 'GBP',
+                ],
+            ], JSON_THROW_ON_ERROR)),
+        ]);
+        $client = $this->clientWithQueuedResponses($mock);
+
+        $client->getInvoice('inv-123');
+
+        $sentRequest = $mock->getLastRequest();
+        $this->assertNotNull($sentRequest);
+        $this->assertSame('GET', $sentRequest->getMethod());
+        $this->assertSame('invoices/inv-123', $sentRequest->getUri()->getPath());
+        $this->assertSame('token=test-token', $sentRequest->getUri()->getQuery());
     }
 
     public function testGetInvoiceReturnsInvoiceMarkedSettledWhenComplete(): void

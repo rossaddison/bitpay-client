@@ -94,7 +94,7 @@ final readonly class BitPayClient
      */
     public function getInvoice(string $invoiceId): Invoice
     {
-        $response = $this->http->request('GET', 'api/invoices/' . rawurlencode($invoiceId), [
+        $response = $this->http->request('GET', 'invoices/' . rawurlencode($invoiceId), [
             'headers' => [
                 'X-Accept-Version' => self::API_VERSION,
             ],
